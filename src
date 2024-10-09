@@ -1,0 +1,287 @@
+import sqlite3
+import tkinter as tk
+from tkinter import messagebox, ttk
+
+# Função para conectar ao banco de dados e criar tabelas se não existirem
+def connect_db():
+    conn = sqlite3.connect('biblioteca.db')
+    cursor = conn.cursor()
+    
+    # Criação das tabelas
+    cursor.execute('''CREATE TABLE IF NOT EXISTS Autores (
+                        AutorID INTEGER PRIMARY KEY AUTOINCREMENT,
+                        Nome TEXT NOT NULL,
+                        Nacionalidade TEXT)''')
+    
+    cursor.execute('''CREATE TABLE IF NOT EXISTS Livros (
+                        LivroID INTEGER PRIMARY KEY AUTOINCREMENT,
+                        Titulo TEXT NOT NULL,
+                        AutorID INTEGER NOT NULL,
+                        AnoPublicacao INTEGER,
+                        Genero TEXT,
+                        FOREIGN KEY (AutorID) REFERENCES Autores (AutorID))''')
+    
+    cursor.execute('''CREATE TABLE IF NOT EXISTS Emprestimos (
+                        EmprestimoID INTEGER PRIMARY KEY AUTOINCREMENT,
+                        LivroID INTEGER NOT NULL,
+                        DataEmprestimo TEXT NOT NULL,
+                        DataDevolucao TEXT,
+                        NomeUsuario TEXT NOT NULL,
+                        FOREIGN KEY (LivroID) REFERENCES Livros (LivroID))''')
+    
+    conn.commit()
+    return conn, cursor
+
+# Função para validar campos
+def validar_campos(campos):
+    for campo in campos:
+        if not campo.strip():
+            return False
+    return True
+
+class BibliotecaApp(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title('Sistema de Biblioteca')
+        self.geometry("400x400")
+        self.frames = {}
+
+        # Criando frames
+        for F in (PaginaAdicionarAutor, PaginaAdicionarLivro, PaginaAdicionarEmprestimo, PaginaSugestoes):
+            page_name = F.__name__
+            frame = F(parent=self, controller=self)
+            self.frames[page_name] = frame
+            frame.grid(row=0, column=0, sticky='nsew')
+
+        self.show_frame("PaginaAdicionarAutor")
+
+        # Botão de navegação
+        button_frame = tk.Frame(self)
+        button_frame.grid(row=1, column=0, pady=10)
+
+        tk.Button(button_frame, text='Adicionar Autor', command=lambda: self.show_frame("PaginaAdicionarAutor")).pack(side=tk.LEFT)
+        tk.Button(button_frame, text='Adicionar Livro', command=lambda: self.show_frame("PaginaAdicionarLivro")).pack(side=tk.LEFT)
+        tk.Button(button_frame, text='Adicionar Empréstimo', command=lambda: self.show_frame("PaginaAdicionarEmprestimo")).pack(side=tk.LEFT)
+        tk.Button(button_frame, text='Sugestões', command=lambda: self.show_frame("PaginaSugestoes")).pack(side=tk.LEFT)
+
+    def show_frame(self, page_name):
+        frame = self.frames[page_name]
+        frame.tkraise()
+
+class PaginaAdicionarAutor(tk.Frame):
+    def __init__(self, parent, controller):
+        super().__init__(parent)
+        self.controller = controller
+
+        tk.Label(self, text='Adicionar Autor').pack(pady=10)
+
+        tk.Label(self, text='Nome:').pack()
+        self.entry_nome_autor = tk.Entry(self)
+        self.entry_nome_autor.pack()
+
+        tk.Label(self, text='Nacionalidade:').pack()
+        self.entry_nacionalidade_autor = tk.Entry(self)
+        self.entry_nacionalidade_autor.pack()
+
+        tk.Button(self, text='Adicionar Autor', command=self.add_autor).pack(pady=5)
+        tk.Button(self, text='Limpar', command=self.limpar_autor_form).pack()
+
+    def add_autor(self):
+        nome = self.entry_nome_autor.get()
+        nacionalidade = self.entry_nacionalidade_autor.get()
+        
+        if not validar_campos([nome, nacionalidade]):
+            messagebox.showerror('Erro', 'Por favor, preencha todos os campos.')
+            return
+
+        try:
+            conn, cursor = connect_db()
+            cursor.execute('INSERT INTO Autores (Nome, Nacionalidade) VALUES (?, ?)', (nome, nacionalidade))
+            conn.commit()
+            messagebox.showinfo('Sucesso', 'Autor adicionado com sucesso!')
+        except Exception as e:
+            messagebox.showerror('Erro', f'Ocorreu um erro: {e}')
+        finally:
+            conn.close()
+            self.limpar_autor_form()
+
+    def limpar_autor_form(self):
+        self.entry_nome_autor.delete(0, tk.END)
+        self.entry_nacionalidade_autor.delete(0, tk.END)
+
+class PaginaAdicionarLivro(tk.Frame):
+    def __init__(self, parent, controller):
+        super().__init__(parent)
+        self.controller = controller
+
+        tk.Label(self, text='Adicionar Livro').pack(pady=10)
+
+        tk.Label(self, text='Título:').pack()
+        self.entry_titulo_livro = tk.Entry(self)
+        self.entry_titulo_livro.pack()
+
+        tk.Label(self, text='Autor:').pack()
+        self.combobox_autores = ttk.Combobox(self)
+        self.combobox_autores.pack()
+
+        tk.Label(self, text='Ano de Publicação:').pack()
+        self.entry_ano_livro = tk.Entry(self)
+        self.entry_ano_livro.pack()
+
+        tk.Label(self, text='Gênero:').pack()
+        self.entry_genero_livro = tk.Entry(self)
+        self.entry_genero_livro.pack()
+
+        tk.Button(self, text='Adicionar Livro', command=self.add_livro).pack(pady=5)
+        tk.Button(self, text='Limpar', command=self.limpar_livro_form).pack()
+
+        # Atualiza a lista de autores ao inicializar
+        self.atualizar_autores()
+
+    def add_livro(self):
+        titulo = self.entry_titulo_livro.get()
+        autor_nome = self.combobox_autores.get()
+        ano = self.entry_ano_livro.get()
+        genero = self.entry_genero_livro.get()
+
+        if not validar_campos([titulo, autor_nome, ano, genero]):
+            messagebox.showerror('Erro', 'Por favor, preencha todos os campos.')
+            return
+
+        try:
+            conn, cursor = connect_db()
+            cursor.execute('SELECT AutorID FROM Autores WHERE Nome = ?', (autor_nome,))
+            autor_id = cursor.fetchone()[0]
+            cursor.execute('INSERT INTO Livros (Titulo, AutorID, AnoPublicacao, Genero) VALUES (?, ?, ?, ?)',
+                           (titulo, autor_id, ano, genero))
+            conn.commit()
+            messagebox.showinfo('Sucesso', 'Livro adicionado com sucesso!')
+        except Exception as e:
+            messagebox.showerror('Erro', f'Ocorreu um erro: {e}')
+        finally:
+            conn.close()
+            self.limpar_livro_form()
+
+    def limpar_livro_form(self):
+        self.entry_titulo_livro.delete(0, tk.END)
+        self.combobox_autores.set('')
+        self.entry_ano_livro.delete(0, tk.END)
+        self.entry_genero_livro.delete(0, tk.END)
+
+    def atualizar_autores(self):
+        conn, cursor = connect_db()
+        cursor.execute('SELECT Nome FROM Autores')
+        autores = cursor.fetchall()
+        conn.close()
+        self.combobox_autores['values'] = [autor[0] for autor in autores]
+
+class PaginaAdicionarEmprestimo(tk.Frame):
+    def __init__(self, parent, controller):
+        super().__init__(parent)
+        self.controller = controller
+
+        tk.Label(self, text='Adicionar Empréstimo').pack(pady=10)
+
+        tk.Label(self, text='Livro:').pack()
+        self.combobox_livros = ttk.Combobox(self)
+        self.combobox_livros.pack()
+
+        tk.Label(self, text='Data de Empréstimo:').pack()
+        self.entry_data_emp = tk.Entry(self)
+        self.entry_data_emp.pack()
+
+        tk.Label(self, text='Data de Devolução:').pack()
+        self.entry_data_dev = tk.Entry(self)
+        self.entry_data_dev.pack()
+
+        tk.Label(self, text='Nome do Usuário:').pack()
+        self.entry_nome_usuario = tk.Entry(self)
+        self.entry_nome_usuario.pack()
+
+        tk.Button(self, text='Adicionar Empréstimo', command=self.add_emprestimo).pack(pady=5)
+        tk.Button(self, text='Limpar', command=self.limpar_emprestimo_form).pack()
+
+        # Atualiza a lista de livros ao inicializar
+        self.atualizar_livros()
+
+    def add_emprestimo(self):
+        livro_titulo = self.combobox_livros.get()
+        data_emp = self.entry_data_emp.get()
+        data_dev = self.entry_data_dev.get()
+        usuario = self.entry_nome_usuario.get()
+
+        if not validar_campos([livro_titulo, data_emp, usuario]):
+            messagebox.showerror('Erro', 'Por favor, preencha todos os campos necessários.')
+            return
+
+        try:
+            conn, cursor = connect_db()
+            cursor.execute('SELECT LivroID FROM Livros WHERE Titulo = ?', (livro_titulo,))
+            livro_id = cursor.fetchone()[0]
+            cursor.execute('INSERT INTO Emprestimos (LivroID, DataEmprestimo, DataDevolucao, NomeUsuario) VALUES (?, ?, ?, ?)',
+                           (livro_id, data_emp, data_dev, usuario))
+            conn.commit()
+            messagebox.showinfo('Sucesso', 'Empréstimo adicionado com sucesso!')
+        except Exception as e:
+            messagebox.showerror('Erro', f'Ocorreu um erro: {e}')
+        finally:
+            conn.close()
+            self.limpar_emprestimo_form()
+
+    def limpar_emprestimo_form(self):
+        self.combobox_livros.set('')
+        self.entry_data_emp.delete(0, tk.END)
+        self.entry_data_dev.delete(0, tk.END)
+        self.entry_nome_usuario.delete(0, tk.END)
+
+    def atualizar_livros(self):
+        conn, cursor = connect_db()
+        cursor.execute('SELECT Titulo FROM Livros')
+        livros = cursor.fetchall()
+        conn.close()
+        self.combobox_livros['values'] = [livro[0] for livro in livros]
+
+class PaginaSugestoes(tk.Frame):
+    def __init__(self, parent, controller):
+        super().__init__(parent)
+        self.controller = controller
+
+        tk.Label(self, text='Sugestões de Livros').pack(pady=10)
+        self.text_sugestoes = tk.Text(self, wrap=tk.WORD, height=15, width=50)
+        self.text_sugestoes.pack(pady=10)
+
+        tk.Button(self, text='Gerar Sugestões', command=self.gerar_sugestoes).pack()
+
+    def gerar_sugestoes(self):
+        try:
+            conn, cursor = connect_db()
+            cursor.execute('SELECT Titulo, Genero FROM Livros')
+            livros = cursor.fetchall()
+            genero_count = {}
+
+            # Contar a frequência de cada gênero
+            for livro in livros:
+                genero = livro[1]
+                genero_count[genero] = genero_count.get(genero, 0) + 1
+
+            # Ordenar os gêneros por frequência
+            generos_ordenados = sorted(genero_count.items(), key=lambda x: x[1], reverse=True)
+            top_generos = [genero for genero, count in generos_ordenados[:3]]  # Os 3 gêneros mais comuns
+
+            # Obter sugestões de livros com base nos gêneros
+            sugestoes = []
+            for genero in top_generos:
+                cursor.execute('SELECT Titulo FROM Livros WHERE Genero = ?', (genero,))
+                livros_genero = cursor.fetchall()
+                sugestoes.extend([livro[0] for livro in livros_genero])
+
+            self.text_sugestoes.delete(1.0, tk.END)
+            self.text_sugestoes.insert(tk.END, '\n'.join(sugestoes) if sugestoes else 'Nenhuma sugestão disponível.')
+        except Exception as e:
+            messagebox.showerror('Erro', f'Ocorreu um erro: {e}')
+        finally:
+            conn.close()
+
+if __name__ == "__main__":
+    app = BibliotecaApp()
+    app.mainloop()
